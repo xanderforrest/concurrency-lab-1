@@ -101,6 +101,11 @@ func flattenImage(image [][]uint8) []uint8 {
 	return flattenedImage
 }
 
+func worker(startY, endY, startX, endX int, data func(y, x int) uint8, out chan<- [][]uint8) {
+	var newSliceData = medianFilter(startY, endY, startX, endX, data)
+	out <- newSliceData
+}
+
 // filter reads in a png image, applies the filter and outputs the result as a png image.
 // filter is the function called by the tests in medianfilter_test.go
 func filter(filepathIn, filepathOut string, threads int) {
@@ -114,11 +119,24 @@ func filter(filepathIn, filepathOut string, threads int) {
 
 	immutableData := makeImmutableMatrix(getPixelData(img))
 	var newPixelData [][]uint8
-	
+
 	if threads == 1 {
 		newPixelData = medianFilter(0, height, 0, width, immutableData)
 	} else {
-		panic("TODO Implement me")
+
+		var reciever []chan [][]uint8
+		for i := 0; i < threads; i++ {
+			reciever[i] <- makeMatrix(height/threads, width)
+		}
+
+		for i := 0; i < threads; i++ {
+			go worker((height/threads)*i, (height/threads)*(i+1), 0, width, immutableData, reciever[i])
+		}
+
+		for i := 0; i < threads; i++ {
+			newPixelData = append( newPixelData <- reciever[i])
+		}
+
 	}
 
 	imout := image.NewGray(image.Rect(0, 0, width, height))
