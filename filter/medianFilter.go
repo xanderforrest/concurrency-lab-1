@@ -7,7 +7,10 @@ import (
 	"image/png"
 	"os"
 	"sort"
+	"sync"
 )
+
+var wg sync.WaitGroup
 
 // check handles a potential error.
 // It stops execution of the program ("panics") if an error has happened.
@@ -101,9 +104,10 @@ func flattenImage(image [][]uint8) []uint8 {
 	return flattenedImage
 }
 
-func worker(startY, endY, startX, endX int, data func(y, x int) uint8, out chan<- [][]uint8) {
+func worker(startY, endY, startX, endX int, data func(y, x int) uint8, id int, produced []chan [][]uint8) {
+	defer wg.Done()
 	var newSliceData = medianFilter(startY, endY, startX, endX, data)
-	out <- newSliceData
+	produced[id] <- newSliceData
 }
 
 // filter reads in a png image, applies the filter and outputs the result as a png image.
@@ -124,17 +128,14 @@ func filter(filepathIn, filepathOut string, threads int) {
 		newPixelData = medianFilter(0, height, 0, width, immutableData)
 	} else {
 
-		var reciever []chan [][]uint8
-		for i := 0; i < threads; i++ {
-			reciever[i] <- makeMatrix(height/threads, width)
-		}
+		produced := make([]chan [][]uint8, threads, height/threads)
 
 		for i := 0; i < threads; i++ {
-			go worker((height/threads)*i, (height/threads)*(i+1), 0, width, immutableData, reciever[i])
+			go worker((height/threads)*i, (height/threads)*(i+1), 0, width, immutableData, i, produced)
 		}
-
+		wg.Wait()
 		for i := 0; i < threads; i++ {
-			newPixelData = append( newPixelData <- reciever[i])
+			newPixelData = append(<-produced[i])
 		}
 
 	}
